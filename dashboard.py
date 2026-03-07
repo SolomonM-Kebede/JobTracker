@@ -14,7 +14,7 @@ from database import get_all_applications, get_stats, get_high_urgency, init_db
 def check_password():
     if st.session_state.get("authenticated"):
         return
-    st.markdown("##  Job Tracker")
+    st.markdown("## Job Applications Tracker")
     pwd = st.text_input("Password", type="password", placeholder="Enter dashboard password")
     if pwd:
         expected = hashlib.sha256(os.getenv("DASHBOARD_PASSWORD", "").encode()).hexdigest()
@@ -29,7 +29,7 @@ def check_password():
 check_password()
 
 st.set_page_config(
-    page_title="Job Tracker",
+    page_title="Job Applications Tracker",
     page_icon="",
     layout="centered",   #better for mobile browser view 
     initial_sidebar_state="collapsed",
@@ -125,18 +125,18 @@ URGENCY_DOT = {
     "Low":    '<span class="dot-low">●</span>',
 }
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+# Load data
 init_db()
 apps      = get_all_applications()
 stats     = get_stats()
 urgent    = get_high_urgency()
 df        = pd.DataFrame(apps) if apps else pd.DataFrame()
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# Header
 st.markdown("## Job Application Tracker")
 st.caption("Frankfurt am Main · 2026 applications")
 
-# ── Sync button ───────────────────────────────────────────────────────────────
+# Sync button 
 if st.button("Sync Emails", use_container_width=True, type="primary"):
     with st.spinner("Fetching and classifying emails..."):
         from sync import run_sync
@@ -146,7 +146,7 @@ if st.button("Sync Emails", use_container_width=True, type="primary"):
 
 st.markdown("---")
 
-# ── Stat cards ────────────────────────────────────────────────────────────────
+# Stat cards 
 total      = len(apps)
 interviews = stats.get("Interview Invite", 0)
 rejections = stats.get("Rejection", 0)
@@ -196,7 +196,7 @@ with st.expander("Full Report", expanded=False):
     </div>
     """, unsafe_allow_html=True)
 
-# ── Urgent alerts ─────────────────────────────────────────────────────────────
+# Urgent alerts 
 if urgent:
     st.markdown("### Needs Action")
     for item in urgent[:5]:
@@ -212,7 +212,7 @@ if urgent:
         </div>
         """, unsafe_allow_html=True)
 
-# ── Filter bar ────────────────────────────────────────────────────────────────
+# Filter bar 
 st.markdown("### All Applications")
 
 col1, col2 = st.columns(2)
@@ -221,7 +221,7 @@ with col1:
 with col2:
     search = st.text_input("Search", placeholder="Company or role...", label_visibility="collapsed")
 
-# ── Email cards ───────────────────────────────────────────────────────────────
+# Email cards 
 if not df.empty:
     filtered = df.copy()
     if label_filter != "All":
@@ -257,6 +257,6 @@ if not df.empty:
 else:
     st.info("No emails yet — tap **Sync Emails** to start!")
 
-# ── Mobile access footer ──────────────────────────────────────────────────────
+# Mobile access footer 
 st.markdown("---")
 st.caption(" To open on phone: visit `http://<ip>:8501`")

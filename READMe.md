@@ -1,5 +1,5 @@
 # Job Application Email Tracker
-Scans @live.com(it is a set up for microsoft email services but it is prtty much the same for all email providers ) inbox + junk, classifies emails (EN/DE), stores in MongoDB Atlas.
+Scans @live.com(it is a set up for microsoft email services but it is pretty much the same for all email providers ) inbox + junk, classifies emails (EN/DE), stores in MongoDB Atlas.
 Deployed on Proxmox via Docker, accessed privately through Tailscale.
 
 ---
