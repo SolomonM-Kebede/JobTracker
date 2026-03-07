@@ -1,0 +1,37 @@
+services:
+
+  dashboard:
+    build: .
+    container_name: job_tracker_dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - token_cache:/app/data
+    networks:
+      - job_tracker_net
+    healthcheck:
+      disable: true
+
+  scheduler:
+    build: .
+    container_name: job_tracker_scheduler
+    restart: unless-stopped
+    command: python scheduler.py
+    env_file:
+      - .env
+    volumes:
+      - token_cache:/app/data
+    networks:
+      - job_tracker_net
+    healthcheck:
+      disable: true
+
+volumes:
+  token_cache:
+
+networks:
+  job_tracker_net:
+    driver: bridge

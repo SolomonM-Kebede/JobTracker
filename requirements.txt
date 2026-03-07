@@ -1,0 +1,7 @@
+msal==1.31.0
+requests==2.32.3
+pymongo==4.10.1
+streamlit==1.41.1
+pandas==2.2.3
+python-dotenv==1.0.1
+beautifulsoup4==4.12.3
