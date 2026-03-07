@@ -237,7 +237,7 @@ if not df.empty:
     st.caption(f"{len(filtered)} of {len(df)} emails")
 
     for _, row in filtered.iterrows():
-        cls, display = LABEL_PILL.get(row.get("label",""), ("","📧 Unknown"))
+        cls, display = LABEL_PILL.get(row.get("label",""), ("","Unknown"))
         dot = URGENCY_DOT.get(row.get("urgency","Low"), "")
         action_html = f'<div class="action">→ {row["action_needed"]}</div>' if row.get("action_needed") and row["action_needed"] != "None" else ""
         border_color = {
