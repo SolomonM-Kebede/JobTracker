@@ -1,5 +1,5 @@
 """
-MongoDB Atlas storage with extended application tracking fields.
+MongoDB Atlas storage with paginated/filtered queries.
 """
 
 import os
@@ -25,7 +25,6 @@ def get_collection():
         _client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
         try:
             _client.admin.command("ping")
-            print("Connected to MongoDB Atlas.")
         except ConnectionFailure:
             raise ConnectionFailure("Could not connect to MongoDB Atlas.")
     return _client[DB_NAME][COLLECTION]
@@ -38,50 +37,7 @@ def init_db():
     col.create_index("urgency")
     col.create_index("company")
     col.create_index("department")
-    col.create_index([("sent_date", DESCENDING)])
-    print("MongoDB indexes ready.")
-
-
-def upsert_email(email: dict):
-    col = get_collection()
-    doc = {
-        "email_id":     email.get("id"),
-        "subject":      email.get("subject", ""),
-        "preview":      email.get("preview", ""),
-        "sender_email": email.get("from", ""),
-        "sender_name":  email.get("sender_name", ""),
-        "received":     email.get("received", ""),
-        "folder":       email.get("folder", ""),
-        "is_read":      email.get("is_read", False),
-        # classification
-        "label":        email.get("label", "Awaiting Response"),
-        "urgency":      email.get("urgency", "Low"),
-        "summary":      email.get("summary", ""),
-        "action_needed":email.get("action_needed", "None"),
-        "confidence":   email.get("confidence", 0.0),
-        # extended tracking fields
-        "company":      email.get("company", "Unknown"),
-        "job_title":    email.get("job_title", "Unknown"),
-        "department":   email.get("department", "Unknown"),
-        "documents":    email.get("documents", "Not specified"),
-        "sent_date":    email.get("sent_date", ""),
-        "deadline":     email.get("deadline", ""),
-        "ad_link":      email.get("ad_link", ""),
-        "notes":        email.get("notes", ""),
-        "updated_at":   datetime.now(),
-    }
-
-    col.update_one(
-        {"email_id": doc["email_id"]},
-        {
-            "$set": {k: v for k, v in doc.items() if k != "notes"},
-            "$setOnInsert": {
-                "added_at": datetime.now(datetime.now.utc),
-                "notes": ""   # never overwrite user notes on re-sync
-            }
-        },
-        upsert=True
-    )
+    col.create_index([("received", DESCENDING)])
 
 
 def save_emails(emails: list):
@@ -110,14 +66,14 @@ def save_emails(emails: list):
             "sent_date":    email.get("sent_date", ""),
             "deadline":     email.get("deadline", ""),
             "ad_link":      email.get("ad_link", ""),
-            "updated_at":   datetime.now(),
+            "updated_at":   datetime.utcnow(),
         }
         operations.append(
             UpdateOne(
                 {"email_id": doc["email_id"]},
                 {
                     "$set": {k: v for k, v in doc.items() if k != "notes"},
-                    "$setOnInsert": {"added_at": datetime.now(), "notes": ""}
+                    "$setOnInsert": {"added_at": datetime.utcnow(), "notes": ""}
                 },
                 upsert=True
             )
@@ -127,24 +83,8 @@ def save_emails(emails: list):
         print(f"💾 Saved: {result.upserted_count} new, {result.modified_count} updated.")
 
 
-def update_notes(email_id: str, notes: str):
-    """Update user notes for a specific application — never overwritten by sync."""
-    col = get_collection()
-    col.update_one({"email_id": email_id}, {"$set": {"notes": notes}})
-
-
-def update_fields(email_id: str, fields: dict):
-    """Update manually entered fields (deadline, ad_link, etc.)."""
-    col = get_collection()
-    col.update_one({"email_id": email_id}, {"$set": fields})
-
-
-def get_all_applications() -> list:
-    col = get_collection()
-    return list(col.find({}, {"_id": 0}).sort("received", DESCENDING))
-
-
 def get_stats() -> dict:
+    """Returns label counts — lightweight, always loaded."""
     col = get_collection()
     pipeline = [
         {"$group": {"_id": "$label", "count": {"$sum": 1}}},
@@ -153,14 +93,73 @@ def get_stats() -> dict:
     return {row["_id"]: row["count"] for row in col.aggregate(pipeline)}
 
 
+def get_applications_by_label(label: str, page: int = 0,
+                               page_size: int = 10, search: str = "",
+                               department: str = "") -> list:
+    """
+    Fetch only the applications for a specific label — paginated.
+    Optionally filter by search term and department.
+    """
+    col = get_collection()
+    query = {}
+
+    if label != "All":
+        query["label"] = label
+
+    if department and department != "All Departments":
+        query["department"] = department
+
+    if search:
+        query["$or"] = [
+            {"company":   {"$regex": search, "$options": "i"}},
+            {"job_title": {"$regex": search, "$options": "i"}},
+            {"subject":   {"$regex": search, "$options": "i"}},
+        ]
+
+    return list(
+        col.find(query, {"_id": 0})
+           .sort("received", DESCENDING)
+           .skip(page * page_size)
+           .limit(page_size)
+    )
+
+
+def get_total_count(label: str = "All", search: str = "",
+                    department: str = "") -> int:
+    """Count matching documents for pagination."""
+    col = get_collection()
+    query = {}
+    if label != "All":
+        query["label"] = label
+    if department and department != "All Departments":
+        query["department"] = department
+    if search:
+        query["$or"] = [
+            {"company":   {"$regex": search, "$options": "i"}},
+            {"job_title": {"$regex": search, "$options": "i"}},
+            {"subject":   {"$regex": search, "$options": "i"}},
+        ]
+    return col.count_documents(query)
+
+
+def get_departments() -> list:
+    """Get distinct department values for filter dropdown."""
+    col = get_collection()
+    return sorted([d for d in col.distinct("department") if d and d != "Unknown"])
+
+
 def get_high_urgency() -> list:
     col = get_collection()
     return list(col.find(
         {"urgency": "High", "label": {"$nin": ["Rejection", "Application Confirmed"]}},
         {"_id": 0}
-    ).sort("received", DESCENDING))
+    ).sort("received", DESCENDING).limit(5))
+
+
+def update_fields(email_id: str, fields: dict):
+    col = get_collection()
+    col.update_one({"email_id": email_id}, {"$set": fields})
 
 
 if __name__ == "__main__":
-    stats = get_stats()
-    print("Current stats:", stats)
+    print("Stats:", get_stats())

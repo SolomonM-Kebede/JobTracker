@@ -1,18 +1,17 @@
 """
-Mobile-friendly Job Application Tracker Dashboard
-Access via Tailscale: http://<proxmox-tailscale-ip>:8501 or any other prefereable seure tunnel 
+ Optimized Job Tracker: loads only selected category, paginated.
 """
 
 import os
 import hashlib
 import streamlit as st
-import pandas as pd
-from database import (get_all_applications, get_stats, get_high_urgency,
-                      init_db, update_notes, update_fields)
+from database import (get_stats, get_high_urgency, init_db,
+                      get_applications_by_label, get_total_count,
+                      get_departments, update_fields)
 
-# Page config
+# Page config 
 st.set_page_config(
-    page_title="Job Applications Tracker",
+    page_title="Job Application Tracker",
     page_icon="",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -22,12 +21,11 @@ st.set_page_config(
 def check_password():
     if st.session_state.get("authenticated"):
         return
-    st.markdown("## Job Applications Tracker")
+    st.markdown("## Job Application Tracker")
     pwd = st.text_input("Password", type="password", placeholder="Enter dashboard password")
     if pwd:
         expected = hashlib.sha256(os.getenv("DASHBOARD_PASSWORD", "").encode()).hexdigest()
-        entered  = hashlib.sha256(pwd.encode()).hexdigest()
-        if entered == expected:
+        if hashlib.sha256(pwd.encode()).hexdigest() == expected:
             st.session_state["authenticated"] = True
             st.rerun()
         else:
@@ -36,20 +34,21 @@ def check_password():
 
 check_password()
 
-# CSS 
+#  CSS 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 
-.stat-row { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+.stat-row { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
 .stat-card {
-    flex:1; min-width:120px; background:#0f172a;
-    border-radius:14px; padding:14px 10px; text-align:center;
-    border:1px solid rgba(255,255,255,0.07);
+    flex:1; min-width:100px; background:#0f172a; border-radius:14px;
+    padding:12px 8px; text-align:center; border:1px solid rgba(255,255,255,0.07);
+    cursor:pointer; transition: border-color 0.2s;
 }
-.stat-card .val { font-size:1.8rem; font-weight:700; line-height:1; }
-.stat-card .lbl { font-size:0.7rem; color:#94a3b8; margin-top:4px;
+.stat-card.active { border-color:#38bdf8 !important; }
+.stat-card .val { font-size:1.6rem; font-weight:700; line-height:1; }
+.stat-card .lbl { font-size:0.68rem; color:#94a3b8; margin-top:4px;
                   text-transform:uppercase; letter-spacing:0.8px; }
 
 .pill { display:inline-block; padding:3px 10px; border-radius:20px;
@@ -68,18 +67,21 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 }
 .app-card .title  { font-weight:700; font-size:1rem; }
 .app-card .role   { color:#94a3b8; font-size:0.85rem; margin:2px 0 6px; }
-.app-card .grid   { display:grid; grid-template-columns:1fr 1fr;
-                    gap:6px; margin-top:8px; }
-.app-card .field  { font-size:0.78rem; }
-.app-card .flabel { color:#64748b; font-size:0.72rem; text-transform:uppercase;
-                    letter-spacing:0.5px; }
-.app-card .action { margin-top:8px; font-size:0.82rem;
-                    color:#f59e0b; font-weight:600; }
+.app-card .grid   { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:10px; }
+.app-card .flabel { color:#64748b; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px; }
+.app-card .fval   { font-size:0.8rem; margin-top:1px; }
+.app-card .action { margin-top:8px; font-size:0.82rem; color:#f59e0b; font-weight:600; }
+.app-card .notes  { margin-top:6px; font-size:0.75rem; color:#64748b; font-style:italic; }
+
 .dot-high   { color:#ef4444; }
 .dot-medium { color:#f59e0b; }
 .dot-low    { color:#22c55e; }
+
+.page-info { text-align:center; color:#64748b; font-size:0.82rem; margin:8px 0; }
 </style>
 """, unsafe_allow_html=True)
+
+PAGE_SIZE = 10
 
 LABEL_PILL = {
     "Rejection":             ("pill-rejection",  "Rejection"),
@@ -90,6 +92,17 @@ LABEL_PILL = {
     "Application Confirmed": ("pill-confirmed",   "Confirmed"),
     "Awaiting Response":     ("pill-awaiting",    "Waiting"),
 }
+
+STAT_CARDS = [
+    ("All",                  "", "All"),
+    ("Interview Invite",     "", "Interviews"),
+    ("Assessment/Task",      "", "Assessments"),
+    ("Follow-up Needed",     "", "Follow-ups"),
+    ("Application Confirmed","", "Confirmed"),
+    ("Awaiting Response",    "", "Waiting"),
+    ("Rejection",            "", "Rejections"),
+    ("Job Offer",            "", "Offers"),
+]
 
 BORDER_COLOR = {
     "Job Offer":        "#fbbf24",
@@ -105,16 +118,26 @@ URGENCY_DOT = {
     "Low":    '<span class="dot-low">●</span>',
 }
 
-# Load data 
-init_db()
-apps   = get_all_applications()
-stats  = get_stats()
-urgent = get_high_urgency()
-df     = pd.DataFrame(apps) if apps else pd.DataFrame()
+# Session state defaults 
+if "active_label" not in st.session_state:
+    st.session_state.active_label = "All"
+if "page" not in st.session_state:
+    st.session_state.page = 0
+if "search" not in st.session_state:
+    st.session_state.search = ""
+if "dept" not in st.session_state:
+    st.session_state.dept = "All Departments"
 
-# Header 
-st.markdown("## Job Apllication Tracker")
-st.caption("Frankfurt am Main · 2026 applications")
+# Load lightweight data (stats only)
+init_db()
+stats      = get_stats()
+urgent     = get_high_urgency()
+total_all  = sum(v for k, v in stats.items() if k != "Not Job Related")
+departments = ["All Departments"] + get_departments()
+
+# Header
+st.markdown("## Job Application Tracker")
+st.caption("Frankfurt am Main · 2026")
 
 if st.button("Sync Emails", use_container_width=True, type="primary"):
     with st.spinner("Fetching and classifying emails..."):
@@ -125,51 +148,45 @@ if st.button("Sync Emails", use_container_width=True, type="primary"):
 
 st.markdown("---")
 
-# Stats 
-total      = len(apps)
-interviews = stats.get("Interview Invite", 0)
-rejections = stats.get("Rejection", 0)
-offers     = stats.get("Job Offer", 0)
-action     = stats.get("Follow-up Needed", 0) + stats.get("Assessment/Task", 0)
+#  Category cards 
+st.markdown("#### Select Category")
 
-st.markdown(f"""
-<div class="stat-row">
-  <div class="stat-card"><div class="val">{total}</div><div class="lbl">Total</div></div>
-  <div class="stat-card"><div class="val">{interviews}</div><div class="lbl">Interviews</div></div>
-  <div class="stat-card"><div class="val">{rejections}</div><div class="lbl">Rejections</div></div>
-  <div class="stat-card"><div class="val">{offers}</div><div class="lbl">Offers</div></div>
-  <div class="stat-card"><div class="val">{action}</div><div class="lbl">Action</div></div>
-</div>
-""", unsafe_allow_html=True)
+# Row 1 — 4 cards
+cols1 = st.columns(4)
+for i, (label, emoji, name) in enumerate(STAT_CARDS[:4]):
+    count = total_all if label == "All" else stats.get(label, 0)
+    active = "active" if st.session_state.active_label == label else ""
+    with cols1[i]:
+        if st.button(f"{emoji}\n**{count}**\n{name}",
+                     key=f"cat_{label}",
+                     use_container_width=True,
+                     type="primary" if active else "secondary"):
+            st.session_state.active_label = label
+            st.session_state.page = 0
+            st.rerun()
 
-# Report 
-with st.expander("Full Report", expanded=False):
-    rows = ""
-    for label, count in sorted(stats.items(), key=lambda x: -x[1]):
-        if label == "Not Job Related":
-            continue
-        cls, display = LABEL_PILL.get(label, ("", label))
-        rows += f"""<div style="display:flex;justify-content:space-between;padding:6px 0;
-                    border-bottom:1px solid #1e293b;font-size:0.88rem">
-                    <span><span class="pill {cls}">{display}</span></span>
-                    <span style="font-weight:700">{count}</span></div>"""
-    ir = f"{round(interviews/total*100)}%" if total else "—"
-    st.markdown(f"""
-    <div style="background:#0f172a;border-radius:14px;padding:20px;border:1px solid #1e293b">
-      <h4 style="margin:0 0 12px;font-size:1rem"> 2026 Summary</h4>
-      {rows}
-      <div style="display:flex;justify-content:space-between;padding:8px 0 4px;font-size:0.88rem;margin-top:4px">
-        <span style="color:#94a3b8">Interview rate</span>
-        <span style="font-weight:700">{ir}</span>
-      </div>
-    </div>""", unsafe_allow_html=True)
+# Row 2 — 4 cards
+cols2 = st.columns(4)
+for i, (label, emoji, name) in enumerate(STAT_CARDS[4:]):
+    count = stats.get(label, 0)
+    active = "active" if st.session_state.active_label == label else ""
+    with cols2[i]:
+        if st.button(f"{emoji}\n**{count}**\n{name}",
+                     key=f"cat_{label}",
+                     use_container_width=True,
+                     type="primary" if active else "secondary"):
+            st.session_state.active_label = label
+            st.session_state.page = 0
+            st.rerun()
 
-# Urgent 
-if urgent:
-    st.markdown("### Needs Action")
+st.markdown("---")
+
+# Urgent alerts (only on All view) 
+if urgent and st.session_state.active_label == "All":
+    st.markdown("### Needs Action Now")
     for item in urgent[:3]:
         cls, display = LABEL_PILL.get(item.get("label",""), ("",""))
-        bc = BORDER_COLOR.get(item.get("label",""), "#334155")
+        bc  = BORDER_COLOR.get(item.get("label",""), "#334155")
         dot = URGENCY_DOT.get(item.get("urgency","Low"), "")
         st.markdown(f"""
         <div class="app-card" style="border-left-color:{bc}">
@@ -179,54 +196,56 @@ if urgent:
           <div class="action">→ {item.get('action_needed','')}</div>
           <div class="grid">
             <div><div class="flabel">Sent</div>
-                 <div class="field">{item.get('sent_date','—')}</div></div>
+                 <div class="fval">{item.get('sent_date','—') or '—'}</div></div>
             <div><div class="flabel">Deadline</div>
-                 <div class="field">{item.get('deadline','—') or '—'}</div></div>
+                 <div class="fval">{item.get('deadline','—') or '—'}</div></div>
           </div>
         </div>""", unsafe_allow_html=True)
+    st.markdown("---")
 
-# Filters 
-st.markdown("---")
-st.markdown("### All Applications")
+# Search & department filter
+active_label = st.session_state.active_label
+label_display = dict([(l, n) for l, _, n in STAT_CARDS]).get(active_label, active_label)
+st.markdown(f"### {label_display}")
 
-col1, col2 = st.columns(2)
-with col1:
-    label_filter = st.selectbox("Status", ["All"] + list(LABEL_PILL.keys()),
-                                label_visibility="collapsed")
-with col2:
-    dept_options = ["All Departments"]
-    if not df.empty and "department" in df.columns:
-        dept_options += sorted(df["department"].dropna().unique().tolist())
-    dept_filter = st.selectbox("Department", dept_options, label_visibility="collapsed")
+c1, c2 = st.columns([2, 1])
+with c1:
+    search = st.text_input("Search", placeholder="🔍 Company or role...",
+                           value=st.session_state.search,
+                           label_visibility="collapsed",
+                           key="search_input")
+with c2:
+    dept = st.selectbox("Dept", departments,
+                        index=departments.index(st.session_state.dept)
+                        if st.session_state.dept in departments else 0,
+                        label_visibility="collapsed")
 
-search = st.text_input("Search", placeholder="Company, role, or department...",
-                       label_visibility="collapsed")
+# Reset page if filters changed
+if search != st.session_state.search or dept != st.session_state.dept:
+    st.session_state.page = 0
+    st.session_state.search = search
+    st.session_state.dept = dept
+
+# Fetch only this page of this category 
+page      = st.session_state.page
+apps      = get_applications_by_label(active_label, page, PAGE_SIZE, search, dept)
+total     = get_total_count(active_label, search, dept)
+total_pages = max(1, -(-total // PAGE_SIZE))  # ceiling division
+
+st.caption(f"{total} applications · Page {page+1} of {total_pages}")
 
 # Application cards
-if not df.empty:
-    filtered = df.copy()
-    if label_filter != "All":
-        filtered = filtered[filtered["label"] == label_filter]
-    if dept_filter != "All Departments":
-        filtered = filtered[filtered.get("department", pd.Series()) == dept_filter]
-    if search:
-        mask = (
-            filtered.get("company",    pd.Series(dtype=str)).str.contains(search, case=False, na=False) |
-            filtered.get("job_title",  pd.Series(dtype=str)).str.contains(search, case=False, na=False) |
-            filtered.get("department", pd.Series(dtype=str)).str.contains(search, case=False, na=False)
-        )
-        filtered = filtered[mask]
-
-    st.caption(f"{len(filtered)} of {len(df)} applications")
-
-    for _, row in filtered.iterrows():
-        cls, display = LABEL_PILL.get(row.get("label",""), ("",""))
+if apps:
+    for row in apps:
+        cls, display = LABEL_PILL.get(row.get("label",""), ("","📧"))
         bc  = BORDER_COLOR.get(row.get("label",""), "#334155")
         dot = URGENCY_DOT.get(row.get("urgency","Low"), "")
         ad  = row.get("ad_link","") or ""
-        ad_html = f'<a href="{ad}" target="_blank" style="color:#38bdf8;font-size:0.78rem">View Ad</a>' if ad else ""
+        ad_html = f'<a href="{ad}" target="_blank" style="color:#38bdf8;font-size:0.78rem">🔗 Ad Link</a>' if ad else ""
         action_html = f'<div class="action">→ {row["action_needed"]}</div>' \
                       if row.get("action_needed") and row["action_needed"] != "None" else ""
+        notes_html = f'<div class="notes">📝 {row["notes"]}</div>' \
+                     if row.get("notes") else ""
 
         st.markdown(f"""
         <div class="app-card" style="border-left-color:{bc}">
@@ -236,63 +255,71 @@ if not df.empty:
           {action_html}
           <div class="grid">
             <div><div class="flabel">Department</div>
-                 <div class="field">{row.get('department','—')}</div></div>
+                 <div class="fval">{row.get('department','—') or '—'}</div></div>
             <div><div class="flabel">Sent</div>
-                 <div class="field">{row.get('sent_date','—') or '—'}</div></div>
+                 <div class="fval">{row.get('sent_date','—') or '—'}</div></div>
             <div><div class="flabel">Deadline</div>
-                 <div class="field">{row.get('deadline','—') or '—'}</div></div>
+                 <div class="fval">{row.get('deadline','—') or '—'}</div></div>
             <div><div class="flabel">Documents</div>
-                 <div class="field">{row.get('documents','—')}</div></div>
+                 <div class="fval">{row.get('documents','—') or '—'}</div></div>
           </div>
           <div style="margin-top:6px">{ad_html}</div>
-          <div style="margin-top:4px;font-size:0.75rem;color:#475569">
-             {row.get('notes','') or 'No notes'}
-          </div>
+          {notes_html}
         </div>""", unsafe_allow_html=True)
 
-        # Inline edit panel 
-        with st.expander(f"Edit — {row.get('company','?')} · {row.get('job_title','?')}"):
+        # Edit panel
+        with st.expander(f"Edit — {row.get('company','?')}"):
             e1, e2 = st.columns(2)
+            eid = row.get("email_id","")
             with e1:
-                new_deadline = st.text_input("Deadline", value=row.get("deadline","") or "",
-                                             key=f"dl_{row.get('email_id','')}")
-                new_ad = st.text_input("Ad Link", value=row.get("ad_link","") or "",
-                                       key=f"ad_{row.get('email_id','')}")
-                new_dept = st.text_input("Department", value=row.get("department","") or "",
-                                         key=f"dept_{row.get('email_id','')}")
+                new_company  = st.text_input("Company",    value=row.get("company","") or "",    key=f"co_{eid}")
+                new_title    = st.text_input("Job Title",  value=row.get("job_title","") or "",  key=f"jt_{eid}")
+                new_dept     = st.text_input("Department", value=row.get("department","") or "", key=f"dp_{eid}")
+                new_deadline = st.text_input("Deadline",   value=row.get("deadline","") or "",   key=f"dl_{eid}")
             with e2:
-                new_company = st.text_input("Company", value=row.get("company","") or "",
-                                            key=f"co_{row.get('email_id','')}")
-                new_title = st.text_input("Job Title", value=row.get("job_title","") or "",
-                                          key=f"jt_{row.get('email_id','')}")
-                new_docs = st.text_input("Documents", value=row.get("documents","") or "",
-                                         key=f"docs_{row.get('email_id','')}")
+                new_docs  = st.text_input("Documents", value=row.get("documents","") or "", key=f"dc_{eid}")
+                new_ad    = st.text_input("Ad Link",   value=row.get("ad_link","") or "",   key=f"ad_{eid}")
+                new_label = st.selectbox("Status", list(LABEL_PILL.keys()),
+                                         index=list(LABEL_PILL.keys()).index(row.get("label","Awaiting Response"))
+                                         if row.get("label") in LABEL_PILL else 6,
+                                         key=f"lb_{eid}")
 
-            new_notes = st.text_area("Notes / Details", value=row.get("notes","") or "",
-                                     placeholder="Add any notes about this application...",
-                                     key=f"notes_{row.get('email_id','')}")
+            new_notes = st.text_area("Notes / Details",
+                                     value=row.get("notes","") or "",
+                                     placeholder="Add notes, contact name, salary, anything...",
+                                     key=f"nt_{eid}")
 
-            new_label = st.selectbox("Status", list(LABEL_PILL.keys()),
-                                     index=list(LABEL_PILL.keys()).index(row.get("label","Awaiting Response"))
-                                     if row.get("label") in LABEL_PILL else 6,
-                                     key=f"lbl_{row.get('email_id','')}")
-
-            if st.button("Save Changes", key=f"save_{row.get('email_id','')}",
-                         use_container_width=True):
-                update_fields(row.get("email_id"), {
-                    "deadline":   new_deadline,
-                    "ad_link":    new_ad,
-                    "department": new_dept,
+            if st.button("Save", key=f"sv_{eid}", use_container_width=True):
+                update_fields(eid, {
                     "company":    new_company,
                     "job_title":  new_title,
+                    "department": new_dept,
+                    "deadline":   new_deadline,
                     "documents":  new_docs,
+                    "ad_link":    new_ad,
                     "label":      new_label,
                     "notes":      new_notes,
                 })
                 st.success("Saved!")
                 st.rerun()
 else:
-    st.info("No applications yet — tap **Sync Emails** to start!")
+    st.info("No applications in this category yet.")
+
+#  Pagination 
+if total_pages > 1:
+    st.markdown("---")
+    p1, p2, p3 = st.columns([1, 2, 1])
+    with p1:
+        if st.button("← Prev", disabled=page == 0, use_container_width=True):
+            st.session_state.page -= 1
+            st.rerun()
+    with p2:
+        st.markdown(f'<div class="page-info">Page {page+1} / {total_pages}</div>',
+                    unsafe_allow_html=True)
+    with p3:
+        if st.button("Next →", disabled=page >= total_pages - 1, use_container_width=True):
+            st.session_state.page += 1
+            st.rerun()
 
 st.markdown("---")
-st.caption("http://<tailscale-ip>:8501 · Auto-syncs every 6h")
+st.caption("Tailscale · Auto-syncs every 6h")

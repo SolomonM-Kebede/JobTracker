@@ -5,7 +5,7 @@ Extracts: label, company, job_title, department, sent_date, deadline, ad_link, d
 
 import re
 
-# Keyword rules (order matters — first match wins)
+# Keyword rules (order matters — first match wins) 
 
 RULES = [
     {
@@ -119,7 +119,7 @@ AWAITING_KEYWORDS = [
     "sichten.*bewerbungen",
 ]
 
-# Document type detection 
+# ── Document type detection ───────────────────────────────────────────────────
 
 DOCUMENT_KEYWORDS = {
     "CV/Resume":        ["curriculum vitae", "lebenslauf", "resume", "cv"],
@@ -130,7 +130,7 @@ DOCUMENT_KEYWORDS = {
     "ID/Passport":      ["passport", "reisepass", "personalausweis", "identity"],
 }
 
-# Department/Area detection 
+# ── Department/Area detection ─────────────────────────────────────────────────
 
 DEPARTMENT_KEYWORDS = {
     "Engineering":      ["engineer", "entwickler", "software", "backend", "frontend",
@@ -157,23 +157,38 @@ def _match_any(text: str, patterns: list) -> bool:
     return False
 
 
-def _extract_company(subject: str, sender_email: str) -> str:
-    if sender_email and "@" in sender_email:
-        domain = sender_email.split("@")[-1]
-        generic = {
-            "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com",
-            "noreply.com", "no-reply.com", "notifications.com",
-            "stepstone.de", "xing.com", "linkedin.com", "indeed.com",
-            "arbeitsagentur.de", "jobs.de", "karriere.de"
-        }
-        if domain not in generic:
-            return domain.split(".")[0].replace("-", " ").title()
+def _extract_company(subject: str, sender_name: str) -> str:
+    """
+    Extract company name using this priority:
+    1. sender_name directly (e.g. 'Siemens AG Recruiting', 'Acme Careers')
+    2. Subject line: 'at <Company>' or 'bei <Firma>'
+    """
+    GENERIC_NAMES = {
+        "noreply", "no reply", "no-reply", "donotreply", "do not reply",
+        "notifications", "info", "careers", "jobs", "recruiting", "hr",
+        "bewerbung", "talent", "recruitment", "linkedin", "xing", "stepstone",
+        "indeed", "glassdoor", "arbeitsagentur", "support", "system",
+    }
 
-    match = re.search(r"\bat\s+([A-Z][a-zA-Z\s&]+?)(?:\s*[-,!.]|$)", subject)
+    if sender_name and len(sender_name) > 1:
+        # Skip if looks like a raw email address (contains @ or starts with no-)
+        if "@" not in sender_name and not re.match(r"no[- ]?reply", sender_name, re.IGNORECASE):
+            # Strip noise suffixes: "Siemens AG Recruiting" -> "Siemens AG"
+            cleaned = re.split(
+                r"\s*[-|·–]\s*|\s+(?:careers|recruiting|hr|jobs|team|bewerbung|talent)$",
+                sender_name, flags=re.IGNORECASE
+            )[0].strip()
+
+            if cleaned.lower() not in GENERIC_NAMES and len(cleaned) > 1:
+                return cleaned
+
+    # Fallback 1 — English: "Software Engineer at Acme Corp"
+    match = re.search(r"\bat\s+([A-Z][a-zA-Z\s&.]+?)(?:\s*[-,!.]|$)", subject)
     if match:
         return match.group(1).strip()
 
-    match = re.search(r"\b(?:bei|für)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s&]+?)(?:\s*[-,!.]|$)", subject)
+    # Fallback 2 — German: "Entwickler bei Siemens AG"
+    match = re.search(r"\b(?:bei|für)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s&.]+?)(?:\s*[-,!.]|$)", subject)
     if match:
         return match.group(1).strip()
 
@@ -262,10 +277,10 @@ def classify_email(subject: str, preview: str, sender: str = "", received: str =
     documents, deadline, ad_link, urgency, action_needed.
     """
     combined = f"{subject} {preview}"
-    sender_email = sender.split("<")[-1].replace(">", "").strip() if "<" in sender else sender
+    sender_name = sender.split("<")[0].strip() if "<" in sender else sender
 
     # Extract fields regardless of label
-    company    = _extract_company(subject, sender_email)
+    company    = _extract_company(subject, sender_name)
     job_title  = _extract_job_title(subject)
     department = _extract_department(subject, preview)
     documents  = _extract_documents(preview)
@@ -319,10 +334,15 @@ def classify_batch(emails: list, **kwargs) -> list:
     results = []
     for i, email in enumerate(emails):
         print(f"🏷️  Classifying {i+1}/{len(emails)}: {email['subject'][:50]}...")
+        # Pass "Name <email>" format so classify_email can extract sender_name cleanly
+        sender_name  = email.get("sender_name", "").strip()
+        sender_email = email.get("from", "").strip()
+        sender_str   = f"{sender_name} <{sender_email}>" if sender_name else sender_email
+
         classification = classify_email(
             subject=email.get("subject", ""),
             preview=email.get("preview", ""),
-            sender=f"{email.get('sender_name', '')} <{email.get('from', '')}>",
+            sender=sender_str,
             received=email.get("received", ""),
         )
         results.append({**email, **classification})
