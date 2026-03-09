@@ -7,7 +7,7 @@ Deployed on Proxmox via Docker, accessed privately through Tailscale.
 ## Architecture
 
 ```
-Phone or browser (Tailscale)
+Phone or browser (Tailscale or any other secure tunnel)
        │  encrypted tunnel, no public internet
        ▼
 Proxmox VM/LXC (Tailscale node)
@@ -18,7 +18,7 @@ Docker Compose
   └── scheduler   → auto-syncs emails every 6 hours
        │
        ▼
-MongoDB Atlas (cloud database)
+MongoDB Atlas (or any cloud database)
 ```
 
 ---

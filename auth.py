@@ -73,4 +73,4 @@ def get_access_token():
 
 if __name__ == "__main__":
     token = get_access_token()
-    print(f"\nToken (first 40 chars): {token[:40]}...")
+    print(f"\nToken (first 40 chars): {token[:40]}...") 
