@@ -1,17 +1,15 @@
 """
-fetch_emails.py — Fetch emails from ALL folders including Junk/Spam
-Filters to emails received from 2026 onwards.
+fetch_emails.py — Parallel folder fetching for faster sync.
+Fetches inbox, junk, and deleted simultaneously using threads.
 """
 
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from auth import get_access_token
 
-GRAPH_BASE = "https://graph.microsoft.com/v1.0/me"
-
+GRAPH_BASE      = "https://graph.microsoft.com/v1.0/me"
 FOLDERS_TO_SCAN = ["inbox", "junkemail", "deleteditems"]
-
-# Only fetch emails from this date onwards
-DATE_FILTER = "2026-01-01T00:00:00Z"
+DATE_FILTER     = "2026-01-01T00:00:00Z"
 
 JOB_KEYWORDS = [
     "application", "applied", "position", "role", "vacancy", "hiring",
@@ -33,8 +31,21 @@ def _is_job_related(subject: str, body_preview: str) -> bool:
     return any(kw in text for kw in JOB_KEYWORDS)
 
 
-def fetch_emails_from_folder(token: str, folder: str, max_emails: int = 100) -> list:
-    """Fetch emails from a folder, filtered to DATE_FILTER onwards."""
+def _parse_email(email: dict, folder: str) -> dict:
+    return {
+        "id":          email.get("id"),
+        "subject":     email.get("subject", "") or "",
+        "preview":     email.get("bodyPreview", "") or "",
+        "from":        email.get("from", {}).get("emailAddress", {}).get("address", ""),
+        "sender_name": email.get("from", {}).get("emailAddress", {}).get("name", ""),
+        "received":    email.get("receivedDateTime", ""),
+        "folder":      folder,
+        "is_read":     email.get("isRead", False),
+    }
+
+
+def fetch_folder(token: str, folder: str, max_emails: int = 100) -> list:
+    """Fetch and filter one folder — runs in its own thread."""
     url = (
         f"{GRAPH_BASE}/mailFolders/{folder}/messages"
         f"?$top={max_emails}"
@@ -43,57 +54,69 @@ def fetch_emails_from_folder(token: str, folder: str, max_emails: int = 100) -> 
         f"&$filter=receivedDateTime ge {DATE_FILTER}"
     )
 
-    emails = []
+    raw, results = [], []
     while url:
-        resp = requests.get(url, headers=_headers(token))
+        resp = requests.get(url, headers=_headers(token), timeout=15)
         if resp.status_code != 200:
-            print(f"Could not fetch folder '{folder}': {resp.status_code} — {resp.text[:200]}")
+            print(f"⚠️  Folder '{folder}': {resp.status_code}")
             break
-
         data = resp.json()
-        emails.extend(data.get("value", []))
-        url = data.get("@odata.nextLink")
+        raw.extend(data.get("value", []))
+        url  = data.get("@odata.nextLink")
 
-    return emails
+    for email in raw:
+        parsed = _parse_email(email, folder)
+        if _is_job_related(parsed["subject"], parsed["preview"]):
+            results.append(parsed)
+
+    print(f"   ✅ {folder}: {len(results)} job emails (of {len(raw)} total)")
+    return results
 
 
-def fetch_all_job_emails(max_per_folder: int = 100) -> list:
+def fetch_all_job_emails(max_per_folder: int = 100,
+                          progress_cb=None) -> list:
     """
-    Fetches from all folders since 2026-01-01, filters job-related emails.
-    Returns list of dicts ready for classification.
+    Fetch all 3 folders IN PARALLEL — ~3x faster than sequential.
+    progress_cb: optional callable(message) for Streamlit status updates.
     """
+    def log(msg):
+        print(msg)
+        if progress_cb:
+            progress_cb(msg)
+
     token = get_access_token()
+    log("🔐 Authenticated — fetching folders in parallel...")
+
     all_emails = []
 
-    for folder in FOLDERS_TO_SCAN:
-        print(f"Scanning folder: {folder} (from 2026)...")
-        emails = fetch_emails_from_folder(token, folder, max_per_folder)
-        print(f"   Found {len(emails)} emails since 2026, filtering for job-related...")
+    # Run all 3 folder fetches simultaneously
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(fetch_folder, token, folder, max_per_folder): folder
+            for folder in FOLDERS_TO_SCAN
+        }
+        for future in as_completed(futures):
+            folder = futures[future]
+            try:
+                results = future.result()
+                all_emails.extend(results)
+            except Exception as e:
+                log(f"⚠️  Error fetching {folder}: {e}")
 
-        for email in emails:
-            subject = email.get("subject", "") or ""
-            preview = email.get("bodyPreview", "") or ""
+    # Deduplicate by email id (in case of overlap)
+    seen, deduped = set(), []
+    for email in all_emails:
+        if email["id"] not in seen:
+            seen.add(email["id"])
+            deduped.append(email)
 
-            if _is_job_related(subject, preview):
-                all_emails.append({
-                    "id":          email.get("id"),
-                    "subject":     subject,
-                    "preview":     preview,
-                    "from":        email.get("from", {}).get("emailAddress", {}).get("address", ""),
-                    "sender_name": email.get("from", {}).get("emailAddress", {}).get("name", ""),
-                    "received":    email.get("receivedDateTime", ""),
-                    "folder":      folder,
-                    "is_read":     email.get("isRead", False),
-                })
-
-    print(f"\n Total job-related emails found: {len(all_emails)}")
-    return all_emails
+    log(f"✅ {len(deduped)} job-related emails found across all folders.")
+    return deduped
 
 
 if __name__ == "__main__":
     emails = fetch_all_job_emails()
     for e in emails[:5]:
-        print(f"\n{e['subject'][:60]}")
+        print(f"\n📧 {e['subject'][:60]}")
         print(f"   From: {e['sender_name']} <{e['from']}>")
         print(f"   Date: {e['received'][:10]}")
-        print(f"   Folder: {e['folder']}")

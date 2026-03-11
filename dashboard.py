@@ -140,13 +140,37 @@ st.markdown("## Job Application Tracker")
 st.caption("Frankfurt am Main · 2026")
 
 if st.button("Sync Emails", use_container_width=True, type="primary"):
-    with st.spinner("Fetching and classifying emails..."):
-        from sync import run_sync
-        run_sync()
-    st.success("Done!")
+    status = st.empty()
+    progress = st.progress(0)
+
+    def update(msg):
+        status.caption(f"⏳ {msg}")
+
+    update("Connecting to Microsoft...")
+    progress.progress(10)
+
+    from fetch_emails import fetch_all_job_emails
+    from classify import classify_batch
+    from database import save_emails, get_stats as _gs
+
+    emails = fetch_all_job_emails(progress_cb=update)
+    progress.progress(50)
+
+    update(f"Classifying {len(emails)} emails...")
+    classified = classify_batch(emails)
+    progress.progress(80)
+
+    update("Saving to MongoDB...")
+    save_emails(classified)
+    progress.progress(100)
+
+    status.empty()
+    progress.empty()
+    st.success(f"Sync complete — {len(classified)} emails processed!")
     st.rerun()
 
 st.markdown("---")
+
 
 #  Category cards 
 st.markdown("#### Select Category")
