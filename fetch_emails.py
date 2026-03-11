@@ -1,5 +1,5 @@
 """
-fetch_emails.py — Parallel folder fetching for faster sync.
+Parallel folder fetching for faster sync.
 Fetches inbox, junk, and deleted simultaneously using threads.
 """
 
@@ -58,7 +58,7 @@ def fetch_folder(token: str, folder: str, max_emails: int = 100) -> list:
     while url:
         resp = requests.get(url, headers=_headers(token), timeout=15)
         if resp.status_code != 200:
-            print(f"⚠️  Folder '{folder}': {resp.status_code}")
+            print(f"Folder '{folder}': {resp.status_code}")
             break
         data = resp.json()
         raw.extend(data.get("value", []))
@@ -69,7 +69,7 @@ def fetch_folder(token: str, folder: str, max_emails: int = 100) -> list:
         if _is_job_related(parsed["subject"], parsed["preview"]):
             results.append(parsed)
 
-    print(f"   ✅ {folder}: {len(results)} job emails (of {len(raw)} total)")
+    print(f"{folder}: {len(results)} job emails (of {len(raw)} total)")
     return results
 
 
@@ -101,7 +101,7 @@ def fetch_all_job_emails(max_per_folder: int = 100,
                 results = future.result()
                 all_emails.extend(results)
             except Exception as e:
-                log(f"⚠️  Error fetching {folder}: {e}")
+                log(f"Error fetching {folder}: {e}")
 
     # Deduplicate by email id (in case of overlap)
     seen, deduped = set(), []
@@ -110,13 +110,13 @@ def fetch_all_job_emails(max_per_folder: int = 100,
             seen.add(email["id"])
             deduped.append(email)
 
-    log(f"✅ {len(deduped)} job-related emails found across all folders.")
+    log(f"{len(deduped)} job-related emails found across all folders.")
     return deduped
 
 
 if __name__ == "__main__":
     emails = fetch_all_job_emails()
     for e in emails[:5]:
-        print(f"\n📧 {e['subject'][:60]}")
+        print(f"\n{e['subject'][:60]}")
         print(f"   From: {e['sender_name']} <{e['from']}>")
         print(f"   Date: {e['received'][:10]}")
