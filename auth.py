@@ -18,6 +18,8 @@ TOKEN_CACHE_FILE = "data/token_cache.json"
 AUTHORITY        = f"https://login.microsoftonline.com/{TENANT_ID}"
 
 
+REDIRECT_URI     = "https://login.microsoftonline.com/common/oauth2/nativeclient"
+
 def _load_cache():
     cache = msal.SerializableTokenCache()
     if os.path.exists(TOKEN_CACHE_FILE):
@@ -74,3 +76,4 @@ def get_access_token():
 if __name__ == "__main__":
     token = get_access_token()
     print(f"\nToken (first 40 chars): {token[:40]}...") 
+    
