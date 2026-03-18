@@ -146,7 +146,7 @@ ui.sent_counter(sent_stats)
 
 # Urgent alerts 
 if urgent and st.session_state.active_label == "All":
-    st.markdown("### ⚡ Needs Action Now")
+    st.markdown("### Needs Action Now")
     for item in urgent[:3]:
         ui.urgent_card(item, LABEL_PILL, BORDER_COLOR)
     st.markdown("---")
