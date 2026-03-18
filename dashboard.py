@@ -7,7 +7,7 @@ import hashlib
 import streamlit as st
 from database import (get_stats, get_high_urgency, init_db,
                       get_applications_by_label, get_total_count,
-                      get_departments, update_fields)
+                      get_departments, update_fields, get_sent_stats)
 
 # Page config 
 st.set_page_config(
@@ -132,6 +132,7 @@ if "dept" not in st.session_state:
 init_db()
 stats      = get_stats()
 urgent     = get_high_urgency()
+sent_stats  = get_sent_stats()
 total_all  = sum(v for k, v in stats.items() if k != "Not Job Related")
 departments = ["All Departments"] + get_departments()
 
@@ -205,6 +206,31 @@ for i, (label, emoji, name) in enumerate(STAT_CARDS[4:]):
 
 st.markdown("---")
 
+# application sent counter
+sent_total    = sent_stats.get("total", 0)
+sent_by_month = sent_stats.get("by_month", {})
+ 
+with st.container():
+    st.markdown(f"""
+    <div style="background:#0f172a;border-radius:14px;padding:16px;
+                border:1px solid rgba(255,255,255,0.07);margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;
+                      letter-spacing:0.8px">Applications Sent</div>
+          <div style="font-size:2.2rem;font-weight:700;line-height:1.2">
+            📤 {sent_total}
+          </div>
+        </div>
+        <div style="text-align:right">
+          {"".join(
+            f'<div style="font-size:0.78rem;color:#64748b">{m}: <b style="color:#e2e8f0">{c}</b></div>'
+            for m, c in sorted(sent_by_month.items())[-3:]
+          )}
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 # Urgent alerts (only on All view) 
 if urgent and st.session_state.active_label == "All":
     st.markdown("### Needs Action Now")

@@ -109,6 +109,21 @@ RULES = [
     },
 ]
 
+# These indicate submitted application (outbound confirmation)
+SENT_KEYWORDS = [
+    # English
+    "you have successfully applied", "your application was submitted",
+    "successfully submitted your application", "application submitted",
+    "you applied for", "your application for", "application complete",
+    "you have applied", "submission confirmed", "form submitted",
+    # German
+    "sie haben sich.*beworben", "ihre bewerbung wurde.*abgeschickt",
+    "bewerbung erfolgreich.*abgeschickt", "bewerbung wurde.*übermittelt",
+    "bewerbung abgeschlossen", "bewerbung eingereicht",
+    "sie haben sich erfolgreich beworben", "formular.*gesendet",
+    "ihre bewerbung.*abgesendet",
+]
+
 AWAITING_KEYWORDS = [
     "application", "applied for", "position of", "role of",
     "vacancy", "job application", "we will be in touch",
@@ -119,8 +134,7 @@ AWAITING_KEYWORDS = [
     "sichten.*bewerbungen",
 ]
 
-# ── Document type detection ───────────────────────────────────────────────────
-
+#  Document type detection 
 DOCUMENT_KEYWORDS = {
     "CV/Resume":        ["curriculum vitae", "lebenslauf", "resume", "cv"],
     "Cover Letter":     ["cover letter", "anschreiben", "motivationsschreiben"],
@@ -130,7 +144,7 @@ DOCUMENT_KEYWORDS = {
     "ID/Passport":      ["passport", "reisepass", "personalausweis", "identity"],
 }
 
-# ── Department/Area detection ─────────────────────────────────────────────────
+# Department/Area detection 
 
 DEPARTMENT_KEYWORDS = {
     "Engineering":      ["engineer", "entwickler", "software", "backend", "frontend",
@@ -278,7 +292,7 @@ def classify_email(subject: str, preview: str, sender: str = "", received: str =
     """
     combined = f"{subject} {preview}"
     sender_name = sender.split("<")[0].strip() if "<" in sender else sender
-
+ 
     # Extract fields regardless of label
     company    = _extract_company(subject, sender_name)
     job_title  = _extract_job_title(subject)
@@ -287,20 +301,22 @@ def classify_email(subject: str, preview: str, sender: str = "", received: str =
     deadline   = _extract_deadline(preview)
     ad_link    = _extract_ad_link(preview)
     sent_date  = received[:10] if received else ""
-
+ 
     base = {
-        "company":    company,
-        "job_title":  job_title,
-        "department": department,
-        "documents":  documents,
-        "sent_date":  sent_date,
-        "deadline":   deadline,
-        "ad_link":    ad_link,
-        "notes":      "",        # manually filled by user in dashboard
+        "company":              company,
+        "job_title":            job_title,
+        "department":           department,
+        "documents":            documents,
+        "sent_date":            sent_date,
+        "deadline":             deadline,
+        "ad_link":              ad_link,
+        "notes":                "",
+        "is_sent_application":  _match_any(combined, SENT_KEYWORDS) or _match_any(combined, ["application received", "bewerbung.*erhalten", "successfully submitted", "erfolgreich.*beworben"]),
     }
-
+ 
     for rule in RULES:
         if _match_any(combined, rule["keywords"]):
+            label_match = rule["label"]  # noqa: F841
             return {
                 **base,
                 "label":         rule["label"],
@@ -309,7 +325,7 @@ def classify_email(subject: str, preview: str, sender: str = "", received: str =
                 "action_needed": rule["action"],
                 "confidence":    0.85,
             }
-
+ 
     if _match_any(combined, AWAITING_KEYWORDS):
         return {
             **base,
@@ -319,7 +335,7 @@ def classify_email(subject: str, preview: str, sender: str = "", received: str =
             "action_needed": "None — wait for response.",
             "confidence":    0.6,
         }
-
+ 
     return {
         **base,
         "label":         "Not Job Related",

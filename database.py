@@ -66,6 +66,7 @@ def save_emails(emails: list):
             "sent_date":    email.get("sent_date", ""),
             "deadline":     email.get("deadline", ""),
             "ad_link":      email.get("ad_link", ""),
+            "is_sent_application":  email.get("is_sent_application", False),
             "updated_at":   datetime.utcnow(),
         }
         operations.append(
@@ -82,7 +83,40 @@ def save_emails(emails: list):
         result = col.bulk_write(operations)
         print(f"💾 Saved: {result.upserted_count} new, {result.modified_count} updated.")
 
-
+def get_sent_stats() -> dict:
+    """
+    Count applications sent, broken down by month.
+    Uses is_sent_application flag + Application Confirmed label.
+    """
+    col = get_collection()
+ 
+    # Total sent count
+    total = col.count_documents({
+        "$or": [
+            {"is_sent_application": True},
+            {"label": "Application Confirmed"}
+        ]
+    })
+ 
+    # Breakdown by month
+    pipeline = [
+        {"$match": {
+            "$or": [
+                {"is_sent_application": True},
+                {"label": "Application Confirmed"}
+            ]
+        }},
+        {"$addFields": {
+            "month": {"$substr": ["$received", 0, 7]}  # "2026-01"
+        }},
+        {"$group": {"_id": "$month", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}}
+    ]
+    by_month = {row["_id"]: row["count"]
+                for row in col.aggregate(pipeline)}
+ 
+    return {"total": total, "by_month": by_month}
+ 
 def get_stats() -> dict:
     """Returns label counts — lightweight, always loaded."""
     col = get_collection()
