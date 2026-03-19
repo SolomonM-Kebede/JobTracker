@@ -81,7 +81,7 @@ docker compose up -d
    tailscale ip -4
    # example output: 100.xx.xx.xx
    ```
-3. Open on a browser on a phone or desktop: `http://100.xx.xx.xx:8501`
+3. Open on a browser on a phone or desktop: `http://100.xx.xx.xx:8081`
 4. Enter your `DASHBOARD_PASSWORD`  
 
 ---
