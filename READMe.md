@@ -138,3 +138,4 @@ Atlas → Network Access → delete `0.0.0.0/0` → Add IP → enter your Tailsc
 | `sync.py` | fetch → classify → save pipeline |
 | `scheduler.py` | Auto-syncs every 6 hours |
 | `dashboard.py` | Mobile-friendly Streamlit UI |
+| `components.py` | HTML/CSS of the dashboard |
