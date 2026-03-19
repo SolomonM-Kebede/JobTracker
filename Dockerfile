@@ -15,15 +15,15 @@ COPY . .
 RUN mkdir -p /app/data
 
 # Expose Streamlit port
-EXPOSE 8501
+EXPOSE 8081
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8501 || exit 1
+  CMD curl -f http://localhost:8081 || exit 1
 
 # Default command — runs dashboard
 CMD ["streamlit", "run", "dashboard.py", \
      "--server.address=0.0.0.0", \
-     "--server.port=8501", \
+     "--server.port=8081", \
      "--server.headless=true", \
      "--browser.gatherUsageStats=false"]
